@@ -6,12 +6,19 @@ const W = 760,
     H = 520;
 
 // ── DOM refs ──
-const readyEl = document.getElementById("ready-screen");
+const startScreenEl = document.getElementById("start-screen");
+const modeSelectEl = document.getElementById("mode-select");
+const difficultySelectEl = document.getElementById("difficulty-select");
+const pvpInfoEl = document.getElementById("pvp-info");
+const pauseScreenEl = document.getElementById("pause-screen");
 const gameoverEl = document.getElementById("gameover-screen");
 const goWho = document.getElementById("go-who");
 const goFinal = document.getElementById("go-final");
 const goWinsEl = document.getElementById("go-wins");
-document.getElementById("btn-again").onclick = startGame;
+const nameLeftEl = document.getElementById("name-left");
+const nameRightEl = document.getElementById("name-right");
+const footerLeftEl = document.getElementById("footer-left");
+const footerRightEl = document.getElementById("footer-right");
 
 const DOM = {
     scoreP: document.getElementById("score-p"),
@@ -164,18 +171,57 @@ function playSound(type, speed = 1) {
         o.start(t);
         o.stop(t + 0.7);
     }
+    if (type === "click") {
+        const o = ctx.createOscillator(),
+            g = ctx.createGain();
+        o.type = "square";
+        o.frequency.setValueAtTime(520, t);
+        g.gain.setValueAtTime(0.12, t);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
+        o.connect(g);
+        g.connect(out);
+        o.start(t);
+        o.stop(t + 0.08);
+    }
 }
-// ── Mute label ──
+
+// ── Mute button ──
 const muteBtn = document.getElementById("mute-btn");
-function updateMuteLabel() {
-    muteBtn.innerHTML = muted ? "PRESS S FOR SOUND" : "PRESS S TO MUTE";
+function updateMuteIcon() {
+    muteBtn.classList.toggle("is-muted", muted);
+    muteBtn.innerHTML = muted
+        ? '<i class="fa-solid fa-volume-xmark"></i>'
+        : '<i class="fa-solid fa-volume-high"></i>';
+    muteBtn.setAttribute("aria-label", muted ? "Unmute sound" : "Mute sound");
 }
-updateMuteLabel();
+updateMuteIcon();
 function toggleMute() {
     muted = !muted;
     if (!muted) getAudio().resume();
-    updateMuteLabel();
+    updateMuteIcon();
 }
+muteBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    toggleMute();
+});
+
+// ── Pause button ──
+const pauseBtn = document.getElementById("pause-btn");
+let paused = false;
+function setPaused(v) {
+    if (state !== "play" && state !== "goal") return;
+    paused = v;
+    pauseScreenEl.classList.toggle("on", paused);
+    pauseBtn.innerHTML = paused
+        ? '<i class="fa-solid fa-play"></i>'
+        : '<i class="fa-solid fa-pause"></i>';
+}
+pauseBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    setPaused(!paused);
+});
+document.getElementById("btn-resume").onclick = () => setPaused(false);
+document.getElementById("btn-quit-to-menu").onclick = () => goToMainMenu();
 
 // ── Confetti ──
 const confetti = [];
@@ -233,8 +279,8 @@ let sloMo = false;
 let sloMoAlpha = 0;
 let sloMoIntro = 0;
 let confettiInterval = null;
-let showSadFace = false; // counts down for big entrance flash
-let sloMoLabelTimer = 0; // counts down before label fades
+let showSadFace = false;
+let sloMoLabelTimer = 0;
 const TABLE_X = 30,
     TABLE_Y = 30,
     TABLE_W = W - 60,
@@ -251,15 +297,36 @@ const MAX_SCORE = 7;
 const FRICTION = 0.995;
 const WALL_BOUNCE = 0.82;
 
-// CPU difficulty tuning
-const CPU_SPEED = 4.6;
-const CPU_REACT = 0.62;
-const CPU_ERROR_Y = 26;
-const CPU_MISTAKE_CHANCE = 0.018;
+// ── Game mode ──
+// 'cpu' = single player vs AI, 'pvp' = local 2 player
+let mode = "cpu";
+let difficulty = "normal";
+
+// CPU difficulty presets
+const DIFFICULTIES = {
+    easy: { speed: 3.5, react: 0.46, errorY: 42, mistakeChance: 0.045 },
+    normal: { speed: 4.6, react: 0.62, errorY: 26, mistakeChance: 0.018 },
+    hard: { speed: 5.7, react: 0.8, errorY: 12, mistakeChance: 0.006 }
+};
+let CPU_SPEED = DIFFICULTIES.normal.speed;
+let CPU_REACT = DIFFICULTIES.normal.react;
+let CPU_ERROR_Y = DIFFICULTIES.normal.errorY;
+let CPU_MISTAKE_CHANCE = DIFFICULTIES.normal.mistakeChance;
 const CPU_MISTAKE_DUR = 42;
+function applyDifficulty(name) {
+    const d = DIFFICULTIES[name] || DIFFICULTIES.normal;
+    CPU_SPEED = d.speed;
+    CPU_REACT = d.react;
+    CPU_ERROR_Y = d.errorY;
+    CPU_MISTAKE_CHANCE = d.mistakeChance;
+    difficulty = name;
+}
+
+// Keyboard movement speed (px/frame at ts=1) for both players
+const KEY_SPEED = 7.8;
 
 // ── State ──
-let state = "title";
+let state = "menu"; // 'menu' | 'play' | 'goal' | 'over'
 let tick = 0;
 let shakeX = 0,
     shakeY = 0,
@@ -267,8 +334,8 @@ let shakeX = 0,
 let goalFlash = 0,
     goalWho = "";
 let goalMsgScale = 0;
-let puckSpeedMult = 1.0; // escalates every 2 goals
-let lastSpeedUpAt = 0; // total goals when last speed-up happened
+let puckSpeedMult = 1.0;
+let lastSpeedUpAt = 0;
 let speedUpMsg = "";
 let speedUpTimer = 0;
 
@@ -303,12 +370,17 @@ const player = {
     pvx: 0,
     pvy: 0
 };
+// `cpu` mallet is either AI-controlled (mode 'cpu') or human-controlled
+// as Player 2 (mode 'pvp'). Fields vx/vy are used by the AI branch,
+// pvx/pvy are used by the human-control branch.
 const cpu = {
     x: W - TABLE_X - 130,
     y: CY,
     r: MALLET_R,
     vx: 0,
     vy: 0,
+    pvx: 0,
+    pvy: 0,
     mistakeTimer: 0,
     errorY: 0,
     hitCool: 0
@@ -354,8 +426,7 @@ function sparkLine(x1, y1, x2, y2, col, n = 8) {
     }
 }
 
-// ── Input ──
-// Track raw pointer; clamp inside updatePlayer so mallet stays on table regardless
+// ── Input: Player 1 (left / blue) — mouse, touch-left, WASD ──
 let rawMouseX = TABLE_X + 120,
     rawMouseY = H / 2;
 let prevRawX = TABLE_X + 120,
@@ -363,13 +434,20 @@ let prevRawX = TABLE_X + 120,
 let mouseVX = 0,
     mouseVY = 0;
 
-function pointerToCanvas(clientX, clientY) {
+// ── Input: Player 2 (right / red) — arrow keys, touch-right (pvp only) ──
+let raw2X = W - TABLE_X - 120,
+    raw2Y = H / 2;
+let prevRaw2X = W - TABLE_X - 120,
+    prevRaw2Y = H / 2;
+let mouseV2X = 0,
+    mouseV2Y = 0;
+
+function pointerToP1(clientX, clientY) {
     const r = CV.getBoundingClientRect();
     const scaleX = W / r.width,
         scaleY = H / r.height;
     const nx = (clientX - r.left) * scaleX;
     const ny = (clientY - r.top) * scaleY;
-    // clamp to player's half of the table
     rawMouseX = clamp(nx, TABLE_X + MALLET_R + 2, CX - 10);
     rawMouseY = clamp(
         ny,
@@ -377,34 +455,169 @@ function pointerToCanvas(clientX, clientY) {
         TABLE_Y + TABLE_H - MALLET_R - 2
     );
 }
+function pointerToP2(clientX, clientY) {
+    const r = CV.getBoundingClientRect();
+    const scaleX = W / r.width,
+        scaleY = H / r.height;
+    const nx = (clientX - r.left) * scaleX;
+    const ny = (clientY - r.top) * scaleY;
+    raw2X = clamp(nx, CX + 10, TABLE_X + TABLE_W - MALLET_R - 2);
+    raw2Y = clamp(
+        ny,
+        TABLE_Y + MALLET_R + 2,
+        TABLE_Y + TABLE_H - MALLET_R - 2
+    );
+}
 
-CV.addEventListener("mousemove", (e) => pointerToCanvas(e.clientX, e.clientY));
-document.addEventListener("mousemove", (e) =>
-    pointerToCanvas(e.clientX, e.clientY)
-);
+// Mouse always drives Player 1, from anywhere on the page
+document.addEventListener("mousemove", (e) => pointerToP1(e.clientX, e.clientY));
 
-CV.addEventListener(
-    "touchmove",
-    (e) => {
-        e.preventDefault();
-        pointerToCanvas(e.touches[0].clientX, e.touches[0].clientY);
-    },
-    { passive: false }
-);
+// Touch: each finger is assigned to a side (left/right of the canvas
+// midline) at touchstart, and keeps controlling that side until lifted.
+const touchAssign = {};
+function handleTouchStart(e) {
+    e.preventDefault();
+    const r = CV.getBoundingClientRect();
+    for (const t of e.changedTouches) {
+        const side = t.clientX - r.left < r.width / 2 ? "p1" : "p2";
+        touchAssign[t.identifier] = side;
+        if (side === "p1") pointerToP1(t.clientX, t.clientY);
+        else pointerToP2(t.clientX, t.clientY);
+    }
+}
+function handleTouchMove(e) {
+    e.preventDefault();
+    for (const t of e.changedTouches) {
+        const side = touchAssign[t.identifier];
+        if (side === "p1") pointerToP1(t.clientX, t.clientY);
+        else if (side === "p2") pointerToP2(t.clientX, t.clientY);
+    }
+}
+function handleTouchEnd(e) {
+    for (const t of e.changedTouches) delete touchAssign[t.identifier];
+}
+CV.addEventListener("touchstart", handleTouchStart, { passive: false });
+CV.addEventListener("touchmove", handleTouchMove, { passive: false });
+CV.addEventListener("touchend", handleTouchEnd, { passive: false });
+CV.addEventListener("touchcancel", handleTouchEnd, { passive: false });
 
-CV.addEventListener(
-    "touchstart",
-    (e) => {
-        e.preventDefault();
-        pointerToCanvas(e.touches[0].clientX, e.touches[0].clientY);
-    },
-    { passive: false }
-);
-
+// Keyboard
+const keyState = {};
+const PREVENT_KEYS = new Set([
+    "ArrowUp",
+    "ArrowDown",
+    "ArrowLeft",
+    "ArrowRight",
+    "Space",
+    "KeyW",
+    "KeyA",
+    "KeyS",
+    "KeyD"
+]);
 document.addEventListener("keydown", (e) => {
-    if (e.code === "KeyS") toggleMute();
+    keyState[e.code] = true;
+    if (PREVENT_KEYS.has(e.code)) e.preventDefault();
     if (e.code === "Space" && state === "over") startGame();
+    if (e.code === "Escape") setPaused(!paused);
 });
+document.addEventListener("keyup", (e) => {
+    keyState[e.code] = false;
+});
+
+const WASD_KEYS = { up: "KeyW", down: "KeyS", left: "KeyA", right: "KeyD" };
+const ARROW_KEYS = {
+    up: "ArrowUp",
+    down: "ArrowDown",
+    left: "ArrowLeft",
+    right: "ArrowRight"
+};
+
+function applyKeyboardMovement(m, keys, speed, minX, maxX, minY, maxY, ts) {
+    let dx = 0,
+        dy = 0;
+    if (keyState[keys.up]) dy -= 1;
+    if (keyState[keys.down]) dy += 1;
+    if (keyState[keys.left]) dx -= 1;
+    if (keyState[keys.right]) dx += 1;
+    if (dx === 0 && dy === 0) return false;
+    const len = Math.hypot(dx, dy) || 1;
+    const stepX = (dx / len) * speed * ts;
+    const stepY = (dy / len) * speed * ts;
+    const prevX = m.x,
+        prevY = m.y;
+    m.x = clamp(m.x + stepX, minX, maxX);
+    m.y = clamp(m.y + stepY, minY, maxY);
+    m.pvx = m.x - prevX;
+    m.pvy = m.y - prevY;
+    return true;
+}
+
+// ── Menu / navigation flow ──
+function showMenuStep(step) {
+    [modeSelectEl, difficultySelectEl, pvpInfoEl].forEach((el) =>
+        el.classList.remove("on")
+    );
+    step.classList.add("on");
+}
+document.getElementById("btn-mode-cpu").onclick = () => {
+    playSound("click");
+    showMenuStep(difficultySelectEl);
+};
+document.getElementById("btn-mode-pvp").onclick = () => {
+    playSound("click");
+    showMenuStep(pvpInfoEl);
+};
+document.getElementById("btn-back-cpu").onclick = () => {
+    playSound("click");
+    showMenuStep(modeSelectEl);
+};
+document.getElementById("btn-back-pvp").onclick = () => {
+    playSound("click");
+    showMenuStep(modeSelectEl);
+};
+document.querySelectorAll(".diff-btn").forEach((btn) => {
+    btn.onclick = () => {
+        playSound("click");
+        applyDifficulty(btn.dataset.difficulty);
+        beginMatch("cpu");
+    };
+});
+document.getElementById("btn-pvp-start").onclick = () => {
+    playSound("click");
+    beginMatch("pvp");
+};
+document.getElementById("btn-again").onclick = () => {
+    playSound("click");
+    startGame();
+};
+document.getElementById("btn-main-menu").onclick = () => {
+    playSound("click");
+    goToMainMenu();
+};
+
+function beginMatch(m) {
+    mode = m;
+    nameLeftEl.textContent = mode === "cpu" ? "YOU" : "PLAYER 1";
+    nameRightEl.textContent = mode === "cpu" ? "CPU" : "PLAYER 2";
+    footerLeftEl.textContent = `FIRST TO ${MAX_SCORE} WINS`;
+    footerRightEl.textContent = `FIRST TO ${MAX_SCORE} WINS`;
+    startScreenEl.classList.remove("on");
+    startGame();
+}
+
+function goToMainMenu() {
+    state = "menu";
+    paused = false;
+    pauseScreenEl.classList.remove("on");
+    gameoverEl.classList.remove("on", "lose-state");
+    showMenuStep(modeSelectEl);
+    startScreenEl.classList.add("on");
+    if (confettiInterval) {
+        clearInterval(confettiInterval);
+        confettiInterval = null;
+    }
+    confetti.length = 0;
+}
 
 // ── Game flow ──
 function startGame() {
@@ -425,9 +638,12 @@ function startGame() {
         confettiInterval = null;
     }
     showSadFace = false;
+    paused = false;
+    pauseScreenEl.classList.remove("on");
+    pauseBtn.innerHTML = '<i class="fa-solid fa-pause"></i>';
     resetRound("p");
     state = "play";
-    if (readyEl) readyEl.classList.remove("on");
+    startScreenEl.classList.remove("on");
     gameoverEl.classList.remove("on", "lose-state");
     particles.length = 0;
     updateStatDOM();
@@ -443,11 +659,21 @@ function resetRound(server) {
     player.y = CY;
     player.pvx = 0;
     player.pvy = 0;
+    rawMouseX = player.x;
+    rawMouseY = player.y;
+    prevRawX = player.x;
+    prevRawY = player.y;
     cpu.x = W - TABLE_X - 120;
     cpu.y = CY;
     cpu.vx = 0;
     cpu.vy = 0;
+    cpu.pvx = 0;
+    cpu.pvy = 0;
     cpu.mistakeTimer = 0;
+    raw2X = cpu.x;
+    raw2Y = cpu.y;
+    prevRaw2X = cpu.x;
+    prevRaw2Y = cpu.y;
     stats.rallyHits = 0;
     if (server === "p") {
         puck.vx = -(3.5 + Math.random() * 1.5) * puckSpeedMult;
@@ -495,35 +721,49 @@ function goalScored(who) {
 
     updateStatDOM();
 
-    // Slo-mo triggers when either player is now at game point (MAX_SCORE - 1)
     const newP = score.p,
         newCPU = score.cpu;
     if ((newP === MAX_SCORE - 1 || newCPU === MAX_SCORE - 1) && !sloMo) {
         sloMo = true;
         sloMoIntro = 80;
-        sloMoLabelTimer = 80 + 90; // intro (80) + hold (90) then fade
+        sloMoLabelTimer = 80 + 90;
     }
-    // Cancel slo-mo only when a new game starts, not on game over
-    // if newP >= MAX_SCORE keep sloMo running for dramatic effect
 
     setTimeout(() => {
         if (score.p >= MAX_SCORE || score.cpu >= MAX_SCORE) {
             state = "over";
-            const playerWon = score.p >= MAX_SCORE;
-            goWho.textContent = playerWon ? "YOU WIN" : "CPU WINS";
-            goWho.style.color = playerWon ? "#00d4ff" : "#ff2d55";
-            goWho.style.textShadow = playerWon
-                ? "0 0 30px #00d4ff, 0 0 60px rgba(0,212,255,0.4)"
-                : "0 0 30px #ff2d55, 0 0 60px rgba(255,45,85,0.4)";
-            goWinsEl.textContent = playerWon
-                ? "GAME · SET · MATCH"
-                : "BETTER LUCK NEXT TIME";
-            document.getElementById("go-face").textContent = playerWon ? "😄" : "😢";
-            goFinal.textContent = `${score.p} – ${score.cpu}`;
-            gameoverEl.classList.remove("lose-state");
-            if (!playerWon) gameoverEl.classList.add("lose-state");
-            burst(CX, CY, "#ffc940", "#ffffff", 80);
-            if (playerWon) {
+            const pWon = score.p >= MAX_SCORE;
+
+            if (mode === "cpu") {
+                goWho.textContent = pWon ? "YOU WIN" : "CPU WINS";
+                goWho.style.color = pWon ? "#00d4ff" : "#ff2d55";
+                goWho.style.textShadow = pWon
+                    ? "0 0 30px #00d4ff, 0 0 60px rgba(0,212,255,0.4)"
+                    : "0 0 30px #ff2d55, 0 0 60px rgba(255,45,85,0.4)";
+                goWinsEl.textContent = pWon
+                    ? "GAME · SET · MATCH"
+                    : "BETTER LUCK NEXT TIME";
+                document.getElementById("go-face").textContent = pWon ? "😄" : "😢";
+                gameoverEl.classList.remove("lose-state");
+                if (!pWon) gameoverEl.classList.add("lose-state");
+                if (pWon) {
+                    playSound("victory");
+                    spawnConfetti();
+                    setTimeout(spawnConfetti, 400);
+                    setTimeout(spawnConfetti, 800);
+                    setTimeout(spawnConfetti, 1400);
+                    confettiInterval = setInterval(spawnConfetti, 1400);
+                }
+            } else {
+                // Local 2-player: celebrate whichever side won, no "lose" framing
+                goWho.textContent = pWon ? "PLAYER 1 WINS" : "PLAYER 2 WINS";
+                goWho.style.color = pWon ? "#00d4ff" : "#ff2d55";
+                goWho.style.textShadow = pWon
+                    ? "0 0 30px #00d4ff, 0 0 60px rgba(0,212,255,0.4)"
+                    : "0 0 30px #ff2d55, 0 0 60px rgba(255,45,85,0.4)";
+                goWinsEl.textContent = "GAME · SET · MATCH";
+                document.getElementById("go-face").textContent = "😄";
+                gameoverEl.classList.remove("lose-state");
                 playSound("victory");
                 spawnConfetti();
                 setTimeout(spawnConfetti, 400);
@@ -531,6 +771,9 @@ function goalScored(who) {
                 setTimeout(spawnConfetti, 1400);
                 confettiInterval = setInterval(spawnConfetti, 1400);
             }
+
+            goFinal.textContent = `${score.p} – ${score.cpu}`;
+            burst(CX, CY, "#ffc940", "#ffffff", 80);
             gameoverEl.classList.add("on");
         } else {
             resetRound(who === "p" ? "cpu" : "p");
@@ -579,7 +822,6 @@ function updateCPU(ts = 1) {
     const puckOnMySide = puck.x > halfW;
     const puckHeadingToMe = puck.vx > 0;
 
-    // Corner escape: if CPU is near a corner and puck isn't coming, go home immediately
     const nearTopWall = cpu.y < minY + 20;
     const nearBottomWall = cpu.y > maxY - 20;
     const nearSideWall = cpu.x > maxX - 20;
@@ -589,7 +831,6 @@ function updateCPU(ts = 1) {
     let tx, ty;
 
     if (cornered || (farFromHome && !puckHeadingToMe)) {
-        // Escape directly to home — ignore puck
         tx = homeX;
         ty = CY;
     } else if (puckOnMySide && puckHeadingToMe) {
@@ -600,11 +841,9 @@ function updateCPU(ts = 1) {
         tx = clamp(puck.x + puck.vx * frames * CPU_REACT, minX, maxX);
         ty = clamp(puck.y + puck.vy * frames * CPU_REACT + err, minY, maxY);
     } else if (puckOnMySide) {
-        // Puck on my side drifting away — chase but don't go past the side wall corner
         tx = clamp(puck.x - 8, minX, maxX - 30);
         ty = clamp(puck.y + err, minY, maxY);
     } else {
-        // Puck on player side — hold home, track Y loosely
         tx = homeX;
         ty = clamp(puck.y * 0.5 + CY * 0.5 + err * 0.3, minY, maxY);
     }
@@ -680,19 +919,19 @@ function updatePuck() {
         sparkLine(tx + tw, puck.y - 20, tx + tw, puck.y + 20, "#ff2d55");
     }
 
-    circleMalletCollide(puck, player, true);
-    circleMalletCollide(puck, cpu, false);
+    circleMalletCollide(puck, player, "p", true);
+    circleMalletCollide(puck, cpu, "cpu", mode === "pvp");
 }
 
-function circleMalletCollide(pk, mallet, isPlayer) {
+function circleMalletCollide(pk, mallet, sideKey, isHuman) {
     const dx = pk.x - mallet.x,
         dy = pk.y - mallet.y;
     const dist = Math.hypot(dx, dy);
     const minDist = pk.r + mallet.r;
     if (dist >= minDist || dist < 0.01) return;
 
-    // CPU hit cooldown — prevents corner spam loop
-    if (!isPlayer && cpu.hitCool > 0) {
+    // AI hit cooldown — prevents corner spam loop (human mallets skip this)
+    if (sideKey === "cpu" && !isHuman && cpu.hitCool > 0) {
         const nx2 = dx / dist,
             ny2 = dy / dist;
         pk.x += nx2 * (minDist - dist);
@@ -705,43 +944,69 @@ function circleMalletCollide(pk, mallet, isPlayer) {
     pk.x += nx * (minDist - dist);
     pk.y += ny * (minDist - dist);
 
-    const mvx = isPlayer ? player.pvx * 1.8 : mallet.vx;
-    const mvy = isPlayer ? player.pvy * 1.8 : mallet.vy;
+    const mvx = isHuman ? mallet.pvx * 1.8 : mallet.vx;
+    const mvy = isHuman ? mallet.pvy * 1.8 : mallet.vy;
 
     const relVX = pk.vx - mvx;
     const relVY = pk.vy - mvy;
     const dot = relVX * nx + relVY * ny;
     if (dot >= 0) return;
 
-    const restitution = isPlayer ? 1.3 : 1.1;
+    const restitution = isHuman ? 1.3 : 1.1;
     const impulse = -(1 + restitution) * dot;
     pk.vx += impulse * nx;
     pk.vy += impulse * ny;
 
     const spd = Math.hypot(pk.vx, pk.vy);
-    const cap = (isPlayer ? 20 : 16) * puckSpeedMult;
+    const cap = (isHuman ? 20 : 16) * puckSpeedMult;
     if (spd > cap) {
         pk.vx = (pk.vx / spd) * cap;
         pk.vy = (pk.vy / spd) * cap;
     }
 
-    if (!isPlayer) cpu.hitCool = 20;
+    if (sideKey === "cpu" && !isHuman) cpu.hitCool = 20;
 
-    const who = isPlayer ? "p" : "cpu";
     stats.rallyHits++;
     const mphSpd = Math.round(spd * 4);
-    if (mphSpd > stats[who].topSpeed) stats[who].topSpeed = mphSpd;
-    if (spd > 14) stats[who].powerHits++;
+    if (mphSpd > stats[sideKey].topSpeed) stats[sideKey].topSpeed = mphSpd;
+    if (spd > 14) stats[sideKey].powerHits++;
     updateStatDOM();
 
     if (spd > 3) {
-        const col = isPlayer ? "#00d4ff" : "#ff2d55";
+        const col = sideKey === "p" ? "#00d4ff" : "#ff2d55";
         burst(pk.x, pk.y, col, "#ffffff", Math.floor(spd * 1.5));
         if (spd > 19) shake(Math.min((spd - 19) * 0.4, 3));
+        playSound("hit", spd);
     }
 }
 
 function updatePlayer(ts = 1) {
+    const bMinX = TABLE_X + MALLET_R + 2,
+        bMaxX = CX - 10,
+        bMinY = TABLE_Y + MALLET_R + 2,
+        bMaxY = TABLE_Y + TABLE_H - MALLET_R - 2;
+
+    const movedByKeyboard = applyKeyboardMovement(
+        player,
+        WASD_KEYS,
+        KEY_SPEED,
+        bMinX,
+        bMaxX,
+        bMinY,
+        bMaxY,
+        ts
+    );
+
+    if (movedByKeyboard) {
+        rawMouseX = player.x;
+        rawMouseY = player.y;
+        prevRawX = rawMouseX;
+        prevRawY = rawMouseY;
+        mouseVX = player.pvx;
+        mouseVY = player.pvy;
+        return;
+    }
+
     const dx = rawMouseX - prevRawX;
     const dy = rawMouseY - prevRawY;
     mouseVX = mouseVX * 0.4 + dx * 0.6;
@@ -750,24 +1015,71 @@ function updatePlayer(ts = 1) {
     prevRawY = rawMouseY;
 
     if (ts === 1) {
-        // Normal: snap directly to mouse
         player.x = rawMouseX;
         player.y = rawMouseY;
     } else {
-        // Slo-mo: lerp toward mouse so mallet also moves in slow motion
         player.x += (rawMouseX - player.x) * ts * 3;
         player.y += (rawMouseY - player.y) * ts * 3;
-        player.x = clamp(player.x, TABLE_X + MALLET_R + 2, CX - 10);
-        player.y = clamp(
-            player.y,
-            TABLE_Y + MALLET_R + 2,
-            TABLE_Y + TABLE_H - MALLET_R - 2
-        );
+        player.x = clamp(player.x, bMinX, bMaxX);
+        player.y = clamp(player.y, bMinY, bMaxY);
     }
 
-    // Scale velocity by timeScale so hits feel right in slo-mo
     player.pvx = mouseVX * ts;
     player.pvy = mouseVY * ts;
+}
+
+// ── Right mallet: AI (cpu mode) or human Player 2 (pvp mode) ──
+function updateRightMallet(ts = 1) {
+    if (mode !== "pvp") {
+        updateCPU(ts);
+        return;
+    }
+
+    const bMinX = CX + 10,
+        bMaxX = W - TABLE_X - cpu.r - 2,
+        bMinY = TABLE_Y + cpu.r + 2,
+        bMaxY = TABLE_Y + TABLE_H - cpu.r - 2;
+
+    const movedByKeyboard = applyKeyboardMovement(
+        cpu,
+        ARROW_KEYS,
+        KEY_SPEED,
+        bMinX,
+        bMaxX,
+        bMinY,
+        bMaxY,
+        ts
+    );
+
+    if (movedByKeyboard) {
+        raw2X = cpu.x;
+        raw2Y = cpu.y;
+        prevRaw2X = raw2X;
+        prevRaw2Y = raw2Y;
+        mouseV2X = cpu.pvx;
+        mouseV2Y = cpu.pvy;
+        return;
+    }
+
+    const dx = raw2X - prevRaw2X;
+    const dy = raw2Y - prevRaw2Y;
+    mouseV2X = mouseV2X * 0.4 + dx * 0.6;
+    mouseV2Y = mouseV2Y * 0.4 + dy * 0.6;
+    prevRaw2X = raw2X;
+    prevRaw2Y = raw2Y;
+
+    if (ts === 1) {
+        cpu.x = raw2X;
+        cpu.y = raw2Y;
+    } else {
+        cpu.x += (raw2X - cpu.x) * ts * 3;
+        cpu.y += (raw2Y - cpu.y) * ts * 3;
+        cpu.x = clamp(cpu.x, bMinX, bMaxX);
+        cpu.y = clamp(cpu.y, bMinY, bMaxY);
+    }
+
+    cpu.pvx = mouseV2X * ts;
+    cpu.pvy = mouseV2Y * ts;
 }
 
 // ══════════════════════════════════════
@@ -792,7 +1104,6 @@ function drawTable() {
         tw = TABLE_W,
         th = TABLE_H;
 
-    // outer glow
     G.save();
     G.shadowColor = "rgba(0,180,255,0.2)";
     G.shadowBlur = 28;
@@ -803,7 +1114,6 @@ function drawTable() {
     G.stroke();
     G.restore();
 
-    // table surface
     G.fillStyle = lgrad(tx, ty, tx, ty + th, [
         [0, "#0a1a2e"],
         [0.5, "#071422"],
@@ -813,7 +1123,6 @@ function drawTable() {
     G.roundRect(tx, ty, tw, th, 10);
     G.fill();
 
-    // air holes
     G.save();
     G.globalAlpha = 0.055;
     G.fillStyle = "#4af";
@@ -825,7 +1134,6 @@ function drawTable() {
         }
     G.restore();
 
-    // center circle
     G.save();
     G.strokeStyle = "rgba(0,212,255,0.16)";
     G.lineWidth = 2;
@@ -836,7 +1144,6 @@ function drawTable() {
     G.setLineDash([]);
     G.restore();
 
-    // center line
     G.save();
     G.strokeStyle = "rgba(0,212,255,0.12)";
     G.lineWidth = 2;
@@ -848,7 +1155,6 @@ function drawTable() {
     G.setLineDash([]);
     G.restore();
 
-    // center dot
     G.save();
     G.shadowColor = "rgba(0,212,255,0.5)";
     G.shadowBlur = 8;
@@ -858,7 +1164,6 @@ function drawTable() {
     G.fill();
     G.restore();
 
-    // rails
     const rt = lgrad(0, ty, 0, ty + 12, [
         [0, "#1a4a6e"],
         [0.6, "#0e2a40"],
@@ -874,7 +1179,6 @@ function drawTable() {
     G.fillStyle = rb;
     G.fillRect(tx, ty + th - 8, tw, 8);
 
-    // rail glow lines
     G.save();
     G.shadowColor = "#00d4ff";
     G.shadowBlur = 10;
@@ -890,7 +1194,6 @@ function drawTable() {
     G.stroke();
     G.restore();
 
-    // left goal
     G.save();
     G.shadowColor = "#00d4ff";
     G.shadowBlur = 14;
@@ -912,7 +1215,6 @@ function drawTable() {
     G.stroke();
     G.restore();
 
-    // right goal
     G.save();
     G.shadowColor = "#ff2d55";
     G.shadowBlur = 14;
@@ -934,7 +1236,6 @@ function drawTable() {
     G.stroke();
     G.restore();
 
-    // goal posts
     [GOAL_Y1, GOAL_Y2].forEach((gy) => {
         G.save();
         G.shadowColor = "#00d4ff";
@@ -1031,7 +1332,6 @@ function drawMallet(m, col, glowCol) {
         my = m.y,
         mr = m.r;
 
-    // outer neon glow halo
     G.save();
     G.shadowColor = glowCol;
     G.shadowBlur = 32;
@@ -1045,7 +1345,6 @@ function drawMallet(m, col, glowCol) {
     G.fill();
     G.restore();
 
-    // base shadow — makes it look raised off the table
     G.save();
     G.globalAlpha = 0.45;
     G.fillStyle = "rgba(0,0,0,0.7)";
@@ -1054,7 +1353,6 @@ function drawMallet(m, col, glowCol) {
     G.fill();
     G.restore();
 
-    // outer plastic skirt — slightly darker, full radius
     const skirtG = G.createRadialGradient(
         mx - mr * 0.2,
         my - mr * 0.2,
@@ -1071,7 +1369,6 @@ function drawMallet(m, col, glowCol) {
     G.arc(mx, my, mr, 0, Math.PI * 2);
     G.fill();
 
-    // neon glowing outer rim ring
     G.save();
     G.shadowColor = glowCol;
     G.shadowBlur = 12;
@@ -1082,7 +1379,6 @@ function drawMallet(m, col, glowCol) {
     G.stroke();
     G.restore();
 
-    // recessed groove ring — the "dip" you see on real strikers
     const grooveR = mr * 0.72;
     G.strokeStyle = `rgba(0,0,0,0.55)`;
     G.lineWidth = 3;
@@ -1095,7 +1391,6 @@ function drawMallet(m, col, glowCol) {
     G.arc(mx, my, grooveR + 1.5, 0, Math.PI * 2);
     G.stroke();
 
-    // raised dome center — lighter in middle, darker at edge of dome
     const domeR = mr * 0.62;
     const domeG = G.createRadialGradient(
         mx - domeR * 0.3,
@@ -1113,7 +1408,6 @@ function drawMallet(m, col, glowCol) {
     G.arc(mx, my, domeR, 0, Math.PI * 2);
     G.fill();
 
-    // glowing center dot
     G.save();
     G.shadowColor = glowCol;
     G.shadowBlur = 14;
@@ -1123,7 +1417,6 @@ function drawMallet(m, col, glowCol) {
     G.fill();
     G.restore();
 
-    // top-left specular highlight — sells the dome shape
     G.fillStyle = "rgba(255,255,255,0.28)";
     G.beginPath();
     G.ellipse(
@@ -1137,7 +1430,6 @@ function drawMallet(m, col, glowCol) {
     );
     G.fill();
 
-    // secondary smaller highlight
     G.fillStyle = "rgba(255,255,255,0.12)";
     G.beginPath();
     G.ellipse(
@@ -1215,7 +1507,15 @@ function drawGoalFlash() {
     G.font = '500 13px "Rajdhani"';
     G.letterSpacing = "6px";
     G.fillStyle = isP ? "rgba(0,212,255,0.75)" : "rgba(255,45,85,0.75)";
-    G.fillText(isP ? "YOU SCORE" : "CPU SCORES", 0, 22);
+    const scoreMsg =
+        mode === "cpu"
+            ? isP
+                ? "YOU SCORE"
+                : "CPU SCORES"
+            : isP
+            ? "PLAYER 1 SCORES"
+            : "PLAYER 2 SCORES";
+    G.fillText(scoreMsg, 0, 22);
     G.restore();
     goalFlash--;
 }
@@ -1256,7 +1556,6 @@ function drawSadFace() {
     G.save();
     G.globalAlpha = 0.82 * pulse;
 
-    // Face circle
     G.fillStyle = "#1a0a0a";
     G.beginPath();
     G.arc(cx, cy, r, 0, Math.PI * 2);
@@ -1270,7 +1569,6 @@ function drawSadFace() {
     G.stroke();
     G.shadowBlur = 0;
 
-    // Eyes (X marks)
     G.strokeStyle = "#ff2d55";
     G.lineWidth = 3.5;
     G.lineCap = "round";
@@ -1288,7 +1586,6 @@ function drawSadFace() {
         G.stroke();
     });
 
-    // Sad mouth
     G.strokeStyle = "#ff2d55";
     G.lineWidth = 3.5;
     G.beginPath();
@@ -1304,7 +1601,6 @@ function loop() {
     G.fillStyle = "#04060a";
     G.fillRect(0, 0, W, H);
 
-    // Slo-mo: fade vignette in/out
     if (sloMo) sloMoAlpha = Math.min(sloMoAlpha + 0.055, 1);
     else sloMoAlpha = Math.max(sloMoAlpha - 0.07, 0);
     if (sloMoIntro > 0) sloMoIntro--;
@@ -1327,17 +1623,13 @@ function loop() {
 
     drawTable();
 
-    if (state === "play" || state === "goal") {
-        // Run physics sub-steps scaled by timeScale
-        const steps = sloMo ? 1 : 1;
-        for (let s = 0; s < steps; s++) {
-            updatePlayer(timeScale);
-            updateCPU(timeScale);
-            updatePuckScaled(timeScale);
-            updateParticles();
-        }
+    if ((state === "play" || state === "goal") && !paused) {
+        updatePlayer(timeScale);
+        updateRightMallet(timeScale);
+        updatePuckScaled(timeScale);
+        updateParticles();
     }
-    updateConfetti();
+    if (!paused) updateConfetti();
 
     drawParticles();
     drawPuck();
@@ -1348,9 +1640,7 @@ function loop() {
     drawConfetti();
     if (showSadFace) drawSadFace();
 
-    // ── Slo-mo cinematic overlay ──
     if (sloMoAlpha > 0) {
-        // Vignette
         const vig = G.createRadialGradient(
             W / 2,
             H / 2,
@@ -1364,13 +1654,11 @@ function loop() {
         G.fillStyle = vig;
         G.fillRect(0, 0, W, H);
 
-        // Letterbox bars
         const barH = 32 * sloMoAlpha;
         G.fillStyle = `rgba(0,0,0,${0.88 * sloMoAlpha})`;
         G.fillRect(0, 0, W, barH);
         G.fillRect(0, H - barH, W, barH);
 
-        // Chromatic edges
         G.save();
         G.globalAlpha = 0.15 * sloMoAlpha;
         G.fillStyle = "#ff0040";
@@ -1381,7 +1669,6 @@ function loop() {
         G.fillRect(W - 10, 0, 5, H);
         G.restore();
 
-        // GAME POINT — only show while label timer is active, pinned to top bar
         if (sloMoLabelTimer > 0) {
             const fadeIn = Math.min(sloMoLabelTimer / 20, 1);
             const fadeOut = sloMoLabelTimer < 30 ? sloMoLabelTimer / 30 : 1;
@@ -1410,7 +1697,6 @@ function loop() {
 function drawSpeedUpMsg() {
     if (speedUpTimer <= 0) return;
     const t = speedUpTimer / 130;
-    // Slam in fast, hold, then fade
     const scale = t > 0.85 ? 0.5 + (1 - (t - 0.85) / 0.15) * 0.5 : 1;
     const alpha = t < 0.2 ? t / 0.2 : 1;
     G.save();
@@ -1418,15 +1704,13 @@ function drawSpeedUpMsg() {
     G.translate(W / 2, H / 2 - 60);
     G.scale(scale, scale);
     G.textAlign = "center";
-    // Chunky outline
     G.font = '900 34px "Orbitron"';
     G.fillStyle = "#000";
     G.fillText(speedUpMsg, 2, 2);
-    // Gradient fill — gold to orange
-    const grd = G.createLinearGradient(-100, -30, 100, 10);
-    grd.addColorStop(0, "#ffc940");
-    grd.addColorStop(1, "#ff6820");
-    G.fillStyle = grd;
+    const grd2 = G.createLinearGradient(-100, -30, 100, 10);
+    grd2.addColorStop(0, "#ffc940");
+    grd2.addColorStop(1, "#ff6820");
+    G.fillStyle = grd2;
     G.shadowColor = "#ffc940";
     G.shadowBlur = 24;
     G.fillText(speedUpMsg, 0, 0);
@@ -1434,5 +1718,23 @@ function drawSpeedUpMsg() {
     speedUpTimer--;
 }
 
+// ── Responsive scaling: fit #outer to the viewport on any screen ──
+const outerEl = document.getElementById("outer");
+function fitOuter() {
+    outerEl.style.transform = "scale(1)";
+    const rect = outerEl.getBoundingClientRect();
+    const margin = 12;
+    const availW = window.innerWidth - margin * 2;
+    const availH = window.innerHeight - margin * 2;
+    const scale = Math.min(availW / rect.width, availH / rect.height, 1.4);
+    outerEl.style.transform = `scale(${scale})`;
+}
+window.addEventListener("resize", fitOuter);
+window.addEventListener("orientationchange", () => setTimeout(fitOuter, 60));
+if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", fitOuter);
+}
+
 loop();
-startGame();
+fitOuter();
+setTimeout(fitOuter, 200);
