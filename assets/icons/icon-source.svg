@@ -1,0 +1,67 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="bgGrad" cx="50%" cy="40%" r="75%">
+      <stop offset="0%" stop-color="#0e1a30"/>
+      <stop offset="55%" stop-color="#080d18"/>
+      <stop offset="100%" stop-color="#04060a"/>
+    </radialGradient>
+    <linearGradient id="borderGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00d4ff"/>
+      <stop offset="50%" stop-color="#ffc940"/>
+      <stop offset="100%" stop-color="#ff2d55"/>
+    </linearGradient>
+    <radialGradient id="blueMallet" cx="34%" cy="36%" r="72%">
+      <stop offset="0%" stop-color="#9df2ff"/>
+      <stop offset="42%" stop-color="#00d4ff"/>
+      <stop offset="100%" stop-color="#005e80"/>
+    </radialGradient>
+    <radialGradient id="redMallet" cx="66%" cy="36%" r="72%">
+      <stop offset="0%" stop-color="#ffb3c4"/>
+      <stop offset="42%" stop-color="#ff2d55"/>
+      <stop offset="100%" stop-color="#7a0020"/>
+    </radialGradient>
+    <radialGradient id="puckGrad" cx="34%" cy="30%" r="78%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="55%" stop-color="#eef6fb"/>
+      <stop offset="100%" stop-color="#c3d3dc"/>
+    </radialGradient>
+    <filter id="glowBlue" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="16"/>
+    </filter>
+    <filter id="glowRed" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="16"/>
+    </filter>
+    <filter id="glowPuck" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur stdDeviation="12"/>
+    </filter>
+  </defs>
+
+  <!-- background -->
+  <rect x="6" y="6" width="500" height="500" rx="114" fill="url(#bgGrad)"/>
+  <rect x="9" y="9" width="494" height="494" rx="111" fill="none" stroke="url(#borderGrad)" stroke-width="6" opacity="0.6"/>
+
+  <!-- faint table reference lines -->
+  <line x1="256" y1="96" x2="256" y2="416" stroke="#7fe9ff" stroke-opacity="0.14" stroke-width="6" stroke-dasharray="14 16"/>
+  <circle cx="256" cy="256" r="64" fill="none" stroke="#7fe9ff" stroke-opacity="0.12" stroke-width="5" stroke-dasharray="8 11"/>
+
+  <!-- ambient glow blobs -->
+  <circle cx="178" cy="258" r="110" fill="#00d4ff" opacity="0.35" filter="url(#glowBlue)"/>
+  <circle cx="334" cy="258" r="110" fill="#ff2d55" opacity="0.35" filter="url(#glowRed)"/>
+
+  <!-- left mallet (blue) -->
+  <circle cx="178" cy="258" r="90" fill="url(#blueMallet)"/>
+  <circle cx="178" cy="258" r="90" fill="none" stroke="#eafeff" stroke-opacity="0.4" stroke-width="4"/>
+  <ellipse cx="150" cy="228" rx="24" ry="13" fill="#ffffff" opacity="0.35" transform="rotate(-25 150 228)"/>
+
+  <!-- right mallet (red) -->
+  <circle cx="334" cy="258" r="90" fill="url(#redMallet)"/>
+  <circle cx="334" cy="258" r="90" fill="none" stroke="#ffe3ea" stroke-opacity="0.4" stroke-width="4"/>
+  <ellipse cx="362" cy="228" rx="24" ry="13" fill="#ffffff" opacity="0.35" transform="rotate(25 362 228)"/>
+
+  <!-- puck, on top of both mallets, dead center -->
+  <circle cx="256" cy="258" r="102" fill="#ffffff" opacity="0.2" filter="url(#glowPuck)"/>
+  <circle cx="256" cy="258" r="80" fill="url(#puckGrad)"/>
+  <circle cx="256" cy="258" r="80" fill="none" stroke="#ffc940" stroke-width="6" stroke-opacity="0.95"/>
+  <circle cx="256" cy="258" r="46" fill="none" stroke="#04060a" stroke-opacity="0.16" stroke-width="4"/>
+  <ellipse cx="228" cy="230" rx="26" ry="15" fill="#ffffff" opacity="0.6" transform="rotate(-25 228 230)"/>
+</svg>
