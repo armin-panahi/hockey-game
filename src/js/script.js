@@ -1,9 +1,15 @@
 const CV = document.getElementById("c");
 const G = CV.getContext("2d");
-CV.width = 760;
-CV.height = 520;
 const W = 760,
     H = 520;
+// Render at native device pixel density so the board stays crisp even
+// when scaled up to fill large desktop/tablet screens. All game logic
+// still works in logical 760x520 units — only the backing store and a
+// single G.scale() call below are affected.
+const DPR = Math.max(1, Math.min(window.devicePixelRatio || 1, 3));
+CV.width = W * DPR;
+CV.height = H * DPR;
+G.scale(DPR, DPR);
 
 // ── DOM refs ──
 const startScreenEl = document.getElementById("start-screen");
@@ -1726,7 +1732,7 @@ function fitOuter() {
     const margin = 12;
     const availW = window.innerWidth - margin * 2;
     const availH = window.innerHeight - margin * 2;
-    const scale = Math.min(availW / rect.width, availH / rect.height, 1.4);
+    const scale = Math.min(availW / rect.width, availH / rect.height, 2.5);
     outerEl.style.transform = `scale(${scale})`;
 }
 window.addEventListener("resize", fitOuter);
