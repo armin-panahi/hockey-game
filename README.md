@@ -23,8 +23,7 @@ No build step, no frameworks, no installs. Open `index.html` and play.
 
 ## 🎮 Live Demo
 
-> Add a link here once you deploy — e.g. via GitHub Pages:
-> `https://armin-panahi.github.io/hockey-game/`
+> https://armin-panahi.github.io/hockey-game/
 
 ## 🖼️ Preview
 
