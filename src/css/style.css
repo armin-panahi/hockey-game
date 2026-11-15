@@ -423,7 +423,7 @@ canvas {
     color: rgba(255, 255, 255, 0.55);
 }
 
-/* ── Pause ── */
+/* ────── Pause ────── */
 .pause-icon {
     font-size: 40px;
     color: var(--gold);
@@ -431,7 +431,7 @@ canvas {
     margin-bottom: 10px;
 }
 
-/* ── Game Over ── */
+/* ────── Game Over ────── */
 .go-face {
     font-size: 60px;
     line-height: 1;
@@ -592,6 +592,9 @@ button#btn-resume:hover {
         transform: rotate(90deg);
     }
 }
+
+
+/* ----- RESPONSIVE ----- */
 
 @media (max-width: 560px) and (orientation: portrait) {
     #rotate-hint {
