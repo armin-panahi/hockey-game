@@ -10,9 +10,9 @@ Play solo against a tunable CPU, or challenge a friend head-to-head on the same 
 [![No dependencies](https://img.shields.io/badge/dependencies-none-brightgreen)](#)
 [![Responsive](https://img.shields.io/badge/responsive-desktop%20%7C%20tablet%20%7C%20mobile-00d4ff)](#)
 [![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](#license)
-
+   
 </div>
-     
+        
 ---
 
 ## ✨ Overview
